@@ -11,7 +11,7 @@
 <img src="https://cloud.synthaly.com/images/sm-logo.png" width="200">
 
 # Synthaly Music Discord Bot
-[![Better Stack Badge](https://uptime.betterstack.com/status-badges/v1/monitor/2fy6j.svg)](https://uptime.betterstack.com/?utm_source=status_badge)
+[![Better Stack Badge](https://uptime.betterstack.com/status-badges/v1/monitor/2fy6j.svg)](https://status.music.synthaly.com/)
 
 Play licensed Synthaly Music tracks directly inside Discord via the official Synthaly Music API.
 
