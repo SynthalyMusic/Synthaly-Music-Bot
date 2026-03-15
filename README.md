@@ -210,8 +210,7 @@ Join the Synthaly community for support, updates, and development discussions.
 
 ## 📜 License
 
+Synthaly Music Bot by Synthaly LLC is licensed under the [GPLv3 license](https://github.com/SynthalyMusic/Synthaly-Music-Bot/blob/main/LICENSE).
+
 © 2026 Synthaly LLC
 All rights reserved.
-
-This project interfaces with proprietary Synthaly infrastructure.
-
