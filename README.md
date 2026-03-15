@@ -84,32 +84,87 @@ Designed for:
 
 ### Requirements
 
-- Node.js 18+
+- Python **3.10+**
+- FFmpeg installed and available in system PATH
 - Discord Bot Token
-- Synthaly Music API Key
+- Synthaly API access (public catalog endpoint)
 
-### Installation
+---
+
+### Install Dependencies
+
+Clone the repository:
 
 ```bash
 git clone https://github.com/SynthalyMusic/Synthaly-Music-Bot
 cd Synthaly-Music-Bot
-npm install
 ````
 
-### Environment
-
-Create `.env`
-
-```
-DISCORD_TOKEN=
-SYNTHALY_API_KEY=
-```
-
-### Run
+Install Python packages:
 
 ```bash
-npm start
+pip install -r requirements.txt
 ```
+
+---
+
+### Environment Setup
+
+Create a `.env` file in the project root:
+
+```
+TOKEN=your_discord_bot_token_here
+```
+
+---
+
+### Run the Bot
+
+```bash
+python main.py
+```
+
+---
+
+### FFmpeg Installation
+
+This bot requires FFmpeg for audio playback.
+
+#### Windows
+
+Download:
+[https://www.gyan.dev/ffmpeg/builds/](https://www.gyan.dev/ffmpeg/builds/)
+
+Add the `bin` folder to your **System PATH**.
+
+#### Linux
+
+```bash
+sudo apt install ffmpeg
+```
+
+#### macOS
+
+```bash
+brew install ffmpeg
+```
+
+---
+
+### First Run Notes
+
+On first startup:
+
+* Slash commands will auto-sync
+* Bot must have **Voice permissions**
+* Bot must have **Use Application Commands**
+* Bot must have **Connect + Speak**
+
+If playback fails, verify:
+
+* FFmpeg installed correctly
+* Bot has voice permissions
+* Voice region is stable
 
 ---
 
