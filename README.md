@@ -75,7 +75,6 @@ Designed for:
 ```
 
 /play <query>
-/beta <user>
 
 ````
 
