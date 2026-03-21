@@ -50,7 +50,7 @@ class PlayView(discord.ui.View):
             vc = await channel.connect()
 
         FFMPEG_OPTIONS = {
-            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5', 
+            'before_options': '-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5',
             'options': '-vn'
         }
 
@@ -67,10 +67,17 @@ class PlayView(discord.ui.View):
 
 @bot.event
 async def on_ready():
+    activity = discord.Activity(
+        type=discord.ActivityType.listening,
+        name="Synthaly Music"
+    )
+    await bot.change_presence(status=discord.Status.online, activity=activity)
+
     print(f"Logged in as {bot.user.name}! Active")
     await bot.tree.sync()
 
 @bot.tree.command(name="play", description="Play music from Synthaly")
+@app_commands.describe(search="Search for a song title")
 async def play(interaction: discord.Interaction, search: str):
     if len(search) < 2:
         return await interaction.response.send_message("Search query too short!", ephemeral=True)
@@ -83,13 +90,17 @@ async def play(interaction: discord.Interaction, search: str):
 
     rel = releaseJson['release']
 
-    audio_url = rel.get('audio_url') 
+    audio_url = rel.get('audio_url')
     title = rel.get('title')
 
     embed = discord.Embed(
-        title = f"{SynthalyBG} {title} by {rel['artist_name']}",
-        color = 0x000000,
-        description = f"Are you sure you want to **play** this song?\n\n{Spotify} [Spotify]({rel['streaming_links']['spotify']})\n{AppleMusic} [Apple Music]({rel['streaming_links']['apple_music']})"
+        title=f"{SynthalyBG} {title} by {rel['artist_name']}",
+        color=0x000000,
+        description=(
+            f"Are you sure you want to **play** this song?\n\n"
+            f"{Spotify} [Spotify]({rel['streaming_links']['spotify']})\n"
+            f"{AppleMusic} [Apple Music]({rel['streaming_links']['apple_music']})"
+        )
     )
     embed.set_thumbnail(url=rel['cover_url'])
 
