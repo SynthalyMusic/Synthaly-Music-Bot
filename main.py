@@ -22,16 +22,22 @@ AppleMusic = "<:AppleMusic:1476328276753649899>"
 guild_queues = {}
 guild_loops = {}
 favorites = {}
-
-# 🆕 FIX: track current song per guild (required for favorites + stability)
+guild_locks = {}
 current_song = {}
 
 FFMPEG_OPTIONS = {
-    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
+    "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5 -nostdin",
     "options": "-vn"
 }
 
-# ---------------- API ----------------
+# ---------------- SAFE HTTP (NON-BLOCKING WRAPPER) ----------------
+async def safe_get_json(url):
+    loop = asyncio.get_event_loop()
+    def _req():
+        return requests.get(url, timeout=10).json()
+    return await loop.run_in_executor(None, _req)
+
+
 def get_detailed_release(json_data, search_input):
     releases = json_data.get("releases", [])
     match = next(
@@ -40,7 +46,10 @@ def get_detailed_release(json_data, search_input):
     )
 
     if match:
-        r = requests.get(f"https://music.synthaly.com/api/v1/releases/{match['id']}")
+        r = requests.get(
+            f"https://music.synthaly.com/api/v1/releases/{match['id']}",
+            timeout=10
+        )
         return r.json()
 
     return None
@@ -48,16 +57,21 @@ def get_detailed_release(json_data, search_input):
 
 # ---------------- SAFE DISCONNECT ----------------
 async def auto_disconnect(vc, guild_id):
-    await asyncio.sleep(120)
+    try:
+        await asyncio.sleep(120)
 
-    if not vc or not vc.channel:
-        return
+        if not vc or not vc.channel:
+            return
 
-    # FIX: prevent crash if queue system changed during sleep
-    if vc and vc.channel and len(vc.channel.members) == 1:
-        await vc.disconnect()
+        if vc.is_connected() and len(vc.channel.members) == 1:
+            await vc.disconnect()
+
         guild_queues[guild_id] = []
         guild_loops[guild_id] = False
+        guild_locks[guild_id] = False
+
+    except Exception:
+        guild_locks[guild_id] = False
 
 
 # ---------------- QUEUE ENGINE ----------------
@@ -65,35 +79,56 @@ def play_next(vc, guild_id):
     if not vc:
         return
 
-    # FIX: loop is now safe (no vc.source reuse)
-    if guild_loops.get(guild_id):
-        if guild_queues.get(guild_id):
-            guild_queues[guild_id].append(guild_queues[guild_id][0])
-
-    queue = guild_queues.get(guild_id, [])
-
-    if not queue:
-        bot.loop.create_task(auto_disconnect(vc, guild_id))
+    if guild_locks.get(guild_id):
         return
 
-    song = queue.pop(0)
+    guild_locks[guild_id] = True
 
-    # FIX: store current song for favorites
-    current_song[guild_id] = song
+    try:
+        queue = guild_queues.get(guild_id, [])
 
-    def after(e):
-        if guild_queues.get(guild_id):
-            play_next(vc, guild_id)
-        else:
+        # loop safety (copy-safe)
+        if guild_loops.get(guild_id) and queue:
+            queue.append(queue[0])
+
+        if not queue:
             bot.loop.create_task(auto_disconnect(vc, guild_id))
+            guild_locks[guild_id] = False
+            return
 
-    vc.play(
-        discord.FFmpegPCMAudio(song["url"], **FFMPEG_OPTIONS),
-        after=after
-    )
+        song = queue.pop(0)
+        current_song[guild_id] = song
+
+        def after(err):
+            # CRITICAL FIX: always schedule back to event loop safely
+            async def runner():
+                try:
+                    guild_locks[guild_id] = False
+                    if err:
+                        pass
+
+                    vc2 = vc.guild.voice_client if vc.guild else None
+
+                    if vc2 and guild_queues.get(guild_id):
+                        play_next(vc2, guild_id)
+                    else:
+                        await auto_disconnect(vc2, guild_id)
+
+                except Exception:
+                    guild_locks[guild_id] = False
+
+            bot.loop.create_task(runner())
+
+        vc.play(
+            discord.FFmpegPCMAudio(song["url"], **FFMPEG_OPTIONS),
+            after=after
+        )
+
+    except Exception:
+        guild_locks[guild_id] = False
 
 
-# ---------------- CONFIRMATION VIEW ----------------
+# ---------------- VIEW ----------------
 class PlayView(View):
     def __init__(self, audio_url, title, artist):
         super().__init__(timeout=120)
@@ -118,6 +153,7 @@ class PlayView(View):
 
         guild_queues.setdefault(gid, [])
         guild_loops.setdefault(gid, False)
+        guild_locks.setdefault(gid, False)
 
         if vc:
             if vc.channel != channel:
@@ -131,27 +167,16 @@ class PlayView(View):
             "artist": self.artist
         }
 
-        # queue if already playing
         if vc.is_playing() or vc.is_paused():
             guild_queues[gid].append(song)
             await interaction.followup.send(f"Queued: **{self.title}**")
             self.stop()
             return
 
-        guild_queues[gid].insert(0, song)
+        guild_queues[gid].append(song)
+        current_song[gid] = song
 
-        current_song[gid] = song  # FIX
-
-        def after(e):
-            if guild_queues.get(gid):
-                play_next(vc, gid)
-            else:
-                bot.loop.create_task(auto_disconnect(vc, gid))
-
-        vc.play(
-            discord.FFmpegPCMAudio(self.audio_url, **FFMPEG_OPTIONS),
-            after=after
-        )
+        play_next(vc, gid)
 
         embed = discord.Embed(
             title="Now Playing",
@@ -188,32 +213,28 @@ async def on_ready():
 async def on_voice_state_update(member, before, after):
     vc = member.guild.voice_client
 
-    if vc and len(vc.channel.members) == 1:
+    if vc and vc.channel and len(vc.channel.members) == 1:
         await asyncio.sleep(60)
 
-        if vc and len(vc.channel.members) == 1:
+        if vc and vc.is_connected() and len(vc.channel.members) == 1:
             await vc.disconnect()
             guild_queues[member.guild.id] = []
+            guild_locks[member.guild.id] = False
 
 
 # ---------------- COMMANDS ----------------
-@bot.tree.command(name="play", description="Play music")
+@bot.tree.command(name="play")
 async def play(interaction: discord.Interaction, search: str):
 
     if len(search) < 2:
-        return await interaction.response.send_message(
-            "Search too short.",
-            ephemeral=True
-        )
+        return await interaction.response.send_message("Search too short.", ephemeral=True)
 
-    r = requests.get("https://music.synthaly.com/api/v1/releases")
-    data = get_detailed_release(r.json(), search)
+    data = await safe_get_json("https://music.synthaly.com/api/v1/releases")
+
+    data = get_detailed_release(data, search)
 
     if not data or "release" not in data:
-        return await interaction.response.send_message(
-            "Not found.",
-            ephemeral=True
-        )
+        return await interaction.response.send_message("Not found.", ephemeral=True)
 
     rel = data["release"]
 
@@ -233,97 +254,69 @@ async def play(interaction: discord.Interaction, search: str):
     await interaction.response.send_message(embed=embed, view=view)
 
 
-@bot.tree.command(name="skip", description="Skip song")
+@bot.tree.command(name="skip")
 async def skip(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
 
     if not vc or not vc.is_playing():
-        return await interaction.response.send_message(
-            "Nothing playing.",
-            ephemeral=True
-        )
+        return await interaction.response.send_message("Nothing playing.", ephemeral=True)
 
     vc.stop()
     await interaction.response.send_message("Skipped.")
 
 
-@bot.tree.command(name="stop", description="Stop and leave")
+@bot.tree.command(name="stop")
 async def stop(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
 
     if vc:
         guild_queues[interaction.guild.id] = []
+        guild_locks[interaction.guild.id] = False
         await vc.disconnect()
         await interaction.response.send_message("Disconnected.")
     else:
         await interaction.response.send_message("Not connected.", ephemeral=True)
 
 
-@bot.tree.command(name="queue", description="Show queue")
+@bot.tree.command(name="queue")
 async def queue(interaction: discord.Interaction):
     q = guild_queues.get(interaction.guild.id, [])
 
     if not q:
-        return await interaction.response.send_message(
-            "Queue empty.",
-            ephemeral=True
-        )
+        return await interaction.response.send_message("Queue empty.", ephemeral=True)
 
-    desc = "\n".join(
-        f"{i+1}. {s['title']} - {s['artist']}"
-        for i, s in enumerate(q)
-    )
+    desc = "\n".join(f"{i+1}. {s['title']} - {s['artist']}" for i, s in enumerate(q))
 
-    embed = discord.Embed(title="Queue", description=desc, color=0x000000)
-    await interaction.response.send_message(embed=embed)
+    await interaction.response.send_message(embed=discord.Embed(title="Queue", description=desc))
 
 
-@bot.tree.command(name="loop", description="Toggle loop")
+@bot.tree.command(name="loop")
 async def loop(interaction: discord.Interaction):
     gid = interaction.guild.id
     guild_loops[gid] = not guild_loops.get(gid, False)
-
-    await interaction.response.send_message(
-        f"Loop {'enabled' if guild_loops[gid] else 'disabled'}."
-    )
+    await interaction.response.send_message(f"Loop {'enabled' if guild_loops[gid] else 'disabled'}.")
 
 
-@bot.tree.command(name="favorite", description="Save current song")
+@bot.tree.command(name="favorite")
 async def favorite(interaction: discord.Interaction):
-    vc = interaction.guild.voice_client
-
-    if not vc:
-        return await interaction.response.send_message(
-            "Nothing playing.",
-            ephemeral=True
-        )
-
-    # FIX: store actual song instead of placeholder
     gid = interaction.guild.id
     song = current_song.get(gid)
 
     if not song:
-        return await interaction.response.send_message(
-            "No song detected.",
-            ephemeral=True
-        )
+        return await interaction.response.send_message("No song detected.", ephemeral=True)
 
     favorites.setdefault(interaction.user.id, []).append(song["title"])
     await interaction.response.send_message("Saved to favorites.")
 
 
-@bot.tree.command(name="favorites", description="View favorites")
+@bot.tree.command(name="favorites")
 async def view_favorites(interaction: discord.Interaction):
     favs = favorites.get(interaction.user.id, [])
 
     if not favs:
-        return await interaction.response.send_message(
-            "No favorites.",
-            ephemeral=True
-        )
+        return await interaction.response.send_message("No favorites.", ephemeral=True)
 
     await interaction.response.send_message("\n".join(favs))
 
 
-# ---------------- RUN ----------------
 bot.run(token)
