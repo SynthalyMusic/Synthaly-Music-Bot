@@ -23,6 +23,9 @@ guild_queues = {}
 guild_loops = {}
 favorites = {}
 
+# 🆕 FIX: track current song per guild (required for favorites + stability)
+current_song = {}
+
 FFMPEG_OPTIONS = {
     "before_options": "-reconnect 1 -reconnect_streamed 1 -reconnect_delay_max 5",
     "options": "-vn"
@@ -50,7 +53,8 @@ async def auto_disconnect(vc, guild_id):
     if not vc or not vc.channel:
         return
 
-    if len(vc.channel.members) == 1:
+    # FIX: prevent crash if queue system changed during sleep
+    if vc and vc.channel and len(vc.channel.members) == 1:
         await vc.disconnect()
         guild_queues[guild_id] = []
         guild_loops[guild_id] = False
@@ -61,9 +65,10 @@ def play_next(vc, guild_id):
     if not vc:
         return
 
-    if guild_loops.get(guild_id) and vc.source:
-        vc.play(vc.source, after=lambda e: play_next(vc, guild_id))
-        return
+    # FIX: loop is now safe (no vc.source reuse)
+    if guild_loops.get(guild_id):
+        if guild_queues.get(guild_id):
+            guild_queues[guild_id].append(guild_queues[guild_id][0])
 
     queue = guild_queues.get(guild_id, [])
 
@@ -72,6 +77,9 @@ def play_next(vc, guild_id):
         return
 
     song = queue.pop(0)
+
+    # FIX: store current song for favorites
+    current_song[guild_id] = song
 
     def after(e):
         if guild_queues.get(guild_id):
@@ -130,8 +138,9 @@ class PlayView(View):
             self.stop()
             return
 
-        # play immediately
         guild_queues[gid].insert(0, song)
+
+        current_song[gid] = song  # FIX
 
         def after(e):
             if guild_queues.get(gid):
@@ -289,7 +298,17 @@ async def favorite(interaction: discord.Interaction):
             ephemeral=True
         )
 
-    favorites.setdefault(interaction.user.id, []).append("Last Played Song")
+    # FIX: store actual song instead of placeholder
+    gid = interaction.guild.id
+    song = current_song.get(gid)
+
+    if not song:
+        return await interaction.response.send_message(
+            "No song detected.",
+            ephemeral=True
+        )
+
+    favorites.setdefault(interaction.user.id, []).append(song["title"])
     await interaction.response.send_message("Saved to favorites.")
 
 
