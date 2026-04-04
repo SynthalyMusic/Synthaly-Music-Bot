@@ -31,7 +31,10 @@ FFMPEG_OPTIONS = {
 # ---------------- API ----------------
 def get_detailed_release(json_data, search_input):
     releases = json_data.get("releases", [])
-    match = next((r for r in releases if search_input.lower() in r["title"].lower()), None)
+    match = next(
+        (r for r in releases if search_input.lower() in r["title"].lower()),
+        None
+    )
 
     if match:
         r = requests.get(f"https://music.synthaly.com/api/v1/releases/{match['id']}")
@@ -40,7 +43,7 @@ def get_detailed_release(json_data, search_input):
     return None
 
 
-# ---------------- SAFE PLAYBACK ENGINE ----------------
+# ---------------- SAFE DISCONNECT ----------------
 async def auto_disconnect(vc, guild_id):
     await asyncio.sleep(120)
 
@@ -53,6 +56,7 @@ async def auto_disconnect(vc, guild_id):
         guild_loops[guild_id] = False
 
 
+# ---------------- QUEUE ENGINE ----------------
 def play_next(vc, guild_id):
     if not vc:
         return
@@ -69,21 +73,19 @@ def play_next(vc, guild_id):
 
     song = queue.pop(0)
 
-    source = discord.FFmpegPCMAudio(song["url"], **FFMPEG_OPTIONS)
-
-    def after(error):
-        if error:
-            print("Playback error:", error)
-
+    def after(e):
         if guild_queues.get(guild_id):
             play_next(vc, guild_id)
         else:
             bot.loop.create_task(auto_disconnect(vc, guild_id))
 
-    vc.play(source, after=after)
+    vc.play(
+        discord.FFmpegPCMAudio(song["url"], **FFMPEG_OPTIONS),
+        after=after
+    )
 
 
-# ---------------- PLAY VIEW ----------------
+# ---------------- CONFIRMATION VIEW ----------------
 class PlayView(View):
     def __init__(self, audio_url, title, artist):
         super().__init__(timeout=120)
@@ -91,12 +93,13 @@ class PlayView(View):
         self.title = title
         self.artist = artist
 
-    @discord.ui.button(label="Play", style=discord.ButtonStyle.success)
-    async def play_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+    @discord.ui.button(label="Yes", style=discord.ButtonStyle.success)
+    async def confirm(self, interaction: discord.Interaction, button: discord.ui.Button):
 
         if not interaction.user.voice:
             return await interaction.response.send_message(
-                "Join a voice channel first!", ephemeral=True
+                "Please join a voice channel first!",
+                ephemeral=True
             )
 
         await interaction.response.defer()
@@ -120,10 +123,14 @@ class PlayView(View):
             "artist": self.artist
         }
 
+        # queue if already playing
         if vc.is_playing() or vc.is_paused():
             guild_queues[gid].append(song)
-            return await interaction.followup.send(f"Queued: **{self.title}**")
+            await interaction.followup.send(f"Queued: **{self.title}**")
+            self.stop()
+            return
 
+        # play immediately
         guild_queues[gid].insert(0, song)
 
         def after(e):
@@ -132,7 +139,10 @@ class PlayView(View):
             else:
                 bot.loop.create_task(auto_disconnect(vc, gid))
 
-        vc.play(discord.FFmpegPCMAudio(self.audio_url, **FFMPEG_OPTIONS), after=after)
+        vc.play(
+            discord.FFmpegPCMAudio(self.audio_url, **FFMPEG_OPTIONS),
+            after=after
+        )
 
         embed = discord.Embed(
             title="Now Playing",
@@ -141,6 +151,15 @@ class PlayView(View):
         )
 
         await interaction.followup.send(embed=embed)
+        self.stop()
+
+    @discord.ui.button(label="No", style=discord.ButtonStyle.danger)
+    async def cancel(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.send_message(
+            "Playback cancelled.",
+            ephemeral=True
+        )
+        self.stop()
 
 
 # ---------------- EVENTS ----------------
@@ -152,7 +171,6 @@ async def on_ready():
             name="Synthaly Music"
         )
     )
-
     print(f"Logged in as {bot.user}")
     await bot.tree.sync()
 
@@ -174,19 +192,26 @@ async def on_voice_state_update(member, before, after):
 async def play(interaction: discord.Interaction, search: str):
 
     if len(search) < 2:
-        return await interaction.response.send_message("Search too short.", ephemeral=True)
+        return await interaction.response.send_message(
+            "Search too short.",
+            ephemeral=True
+        )
 
     r = requests.get("https://music.synthaly.com/api/v1/releases")
     data = get_detailed_release(r.json(), search)
 
     if not data or "release" not in data:
-        return await interaction.response.send_message("Not found.", ephemeral=True)
+        return await interaction.response.send_message(
+            "Not found.",
+            ephemeral=True
+        )
 
     rel = data["release"]
 
     embed = discord.Embed(
         title=f"{SynthalyBG} {rel['title']} - {rel['artist_name']}",
         description=(
+            "Are you sure you want to **play this song?**\n\n"
             f"{Spotify} [Spotify]({rel['streaming_links']['spotify']})\n"
             f"{AppleMusic} [Apple Music]({rel['streaming_links']['apple_music']})"
         ),
@@ -204,7 +229,10 @@ async def skip(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
 
     if not vc or not vc.is_playing():
-        return await interaction.response.send_message("Nothing playing.", ephemeral=True)
+        return await interaction.response.send_message(
+            "Nothing playing.",
+            ephemeral=True
+        )
 
     vc.stop()
     await interaction.response.send_message("Skipped.")
@@ -227,9 +255,15 @@ async def queue(interaction: discord.Interaction):
     q = guild_queues.get(interaction.guild.id, [])
 
     if not q:
-        return await interaction.response.send_message("Queue empty.", ephemeral=True)
+        return await interaction.response.send_message(
+            "Queue empty.",
+            ephemeral=True
+        )
 
-    desc = "\n".join([f"{i+1}. {s['title']} - {s['artist']}" for i, s in enumerate(q)])
+    desc = "\n".join(
+        f"{i+1}. {s['title']} - {s['artist']}"
+        for i, s in enumerate(q)
+    )
 
     embed = discord.Embed(title="Queue", description=desc, color=0x000000)
     await interaction.response.send_message(embed=embed)
@@ -249,8 +283,11 @@ async def loop(interaction: discord.Interaction):
 async def favorite(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
 
-    if not vc or not vc.source:
-        return await interaction.response.send_message("Nothing playing.", ephemeral=True)
+    if not vc:
+        return await interaction.response.send_message(
+            "Nothing playing.",
+            ephemeral=True
+        )
 
     favorites.setdefault(interaction.user.id, []).append("Last Played Song")
     await interaction.response.send_message("Saved to favorites.")
@@ -261,7 +298,10 @@ async def view_favorites(interaction: discord.Interaction):
     favs = favorites.get(interaction.user.id, [])
 
     if not favs:
-        return await interaction.response.send_message("No favorites.", ephemeral=True)
+        return await interaction.response.send_message(
+            "No favorites.",
+            ephemeral=True
+        )
 
     await interaction.response.send_message("\n".join(favs))
 
