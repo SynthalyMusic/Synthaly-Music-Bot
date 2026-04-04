@@ -87,7 +87,6 @@ def play_next(vc, guild_id):
     try:
         queue = guild_queues.get(guild_id, [])
 
-        # loop safety (copy-safe)
         if guild_loops.get(guild_id) and queue:
             queue.append(queue[0])
 
@@ -100,7 +99,6 @@ def play_next(vc, guild_id):
         current_song[guild_id] = song
 
         def after(err):
-            # CRITICAL FIX: always schedule back to event loop safely
             async def runner():
                 try:
                     guild_locks[guild_id] = False
