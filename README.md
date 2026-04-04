@@ -75,6 +75,12 @@ Designed for:
 ```
 
 /play <query>
+/skip
+/queue
+/stop
+/loop
+/favorite
+/favorites
 
 ````
 
