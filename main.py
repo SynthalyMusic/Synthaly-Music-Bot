@@ -146,7 +146,7 @@ class PlayView(View):
 
         embed = discord.Embed(
             title="Now Playing",
-            description=f"**{self.title} - {self.artist}**",
+            description=f"**{self.title} by {self.artist}**",
             color=0x000000
         )
 
@@ -209,9 +209,9 @@ async def play(interaction: discord.Interaction, search: str):
     rel = data["release"]
 
     embed = discord.Embed(
-        title=f"{SynthalyBG} {rel['title']} - {rel['artist_name']}",
+        title=f"{SynthalyBG} {rel['title']} by {rel['artist_name']}",
         description=(
-            "Are you sure you want to **play this song?**\n\n"
+            "Are you sure you want to **play** this song?\n\n"
             f"{Spotify} [Spotify]({rel['streaming_links']['spotify']})\n"
             f"{AppleMusic} [Apple Music]({rel['streaming_links']['apple_music']})"
         ),
