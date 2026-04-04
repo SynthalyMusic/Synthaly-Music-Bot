@@ -221,7 +221,7 @@ async def on_voice_state_update(member, before, after):
 
 
 # ---------------- COMMANDS ----------------
-@bot.tree.command(name="play")
+@bot.tree.command(name="play", description="Search for a song and play it in your voice channel")
 async def play(interaction: discord.Interaction, search: str):
 
     if len(search) < 2:
@@ -252,7 +252,7 @@ async def play(interaction: discord.Interaction, search: str):
     await interaction.response.send_message(embed=embed, view=view)
 
 
-@bot.tree.command(name="skip")
+@bot.tree.command(name="skip", description="Skip the currently playing song")
 async def skip(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
 
@@ -263,7 +263,7 @@ async def skip(interaction: discord.Interaction):
     await interaction.response.send_message("Skipped.")
 
 
-@bot.tree.command(name="stop")
+@bot.tree.command(name="stop", description="Stop playback and disconnect the bot")
 async def stop(interaction: discord.Interaction):
     vc = interaction.guild.voice_client
 
@@ -276,7 +276,7 @@ async def stop(interaction: discord.Interaction):
         await interaction.response.send_message("Not connected.", ephemeral=True)
 
 
-@bot.tree.command(name="queue")
+@bot.tree.command(name="queue", description="View the current music queue")
 async def queue(interaction: discord.Interaction):
     q = guild_queues.get(interaction.guild.id, [])
 
@@ -288,14 +288,14 @@ async def queue(interaction: discord.Interaction):
     await interaction.response.send_message(embed=discord.Embed(title="Queue", description=desc))
 
 
-@bot.tree.command(name="loop")
+@bot.tree.command(name="loop", description="Toggle looping of the current queue")
 async def loop(interaction: discord.Interaction):
     gid = interaction.guild.id
     guild_loops[gid] = not guild_loops.get(gid, False)
     await interaction.response.send_message(f"Loop {'enabled' if guild_loops[gid] else 'disabled'}.")
 
 
-@bot.tree.command(name="favorite")
+@bot.tree.command(name="favorite", description="Save the currently playing song to your favorites")
 async def favorite(interaction: discord.Interaction):
     gid = interaction.guild.id
     song = current_song.get(gid)
@@ -307,7 +307,7 @@ async def favorite(interaction: discord.Interaction):
     await interaction.response.send_message("Saved to favorites.")
 
 
-@bot.tree.command(name="favorites")
+@bot.tree.command(name="favorites", description="View your saved favorite songs")
 async def view_favorites(interaction: discord.Interaction):
     favs = favorites.get(interaction.user.id, [])
 
