@@ -50,10 +50,10 @@ def get_detailed_release(json_data, search_input):
 # ---------------- PLAYBACK ----------------
 async def auto_disconnect(vc, guild_id):
     await asyncio.sleep(180)
-    if not vc.is_playing() and not vc.is_paused():
+    if vc and len(vc.channel.members) == 1:
         await vc.disconnect()
         guild_queues[guild_id] = []
-
+        
 def play_next(vc, guild_id):
     if guild_loops.get(guild_id):
         vc.play(vc.source, after=lambda e: play_next(vc, guild_id))
