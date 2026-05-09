@@ -47,7 +47,7 @@ def get_detailed_release(json_data, search_input):
 
     if match:
         r = requests.get(
-            f"https://music.synthaly.com/api/v1/releases/{match['id']}",
+            f"https://synthalymusic.com/api/v1/releases/{match['id']}",
             timeout=10
         )
         return r.json()
@@ -227,7 +227,7 @@ async def play(interaction: discord.Interaction, search: str):
     if len(search) < 2:
         return await interaction.response.send_message("Search too short.", ephemeral=True)
 
-    data = await safe_get_json("https://music.synthaly.com/api/v1/releases")
+    data = await safe_get_json("https://synthalymusic.com/api/v1/releases")
 
     data = get_detailed_release(data, search)
 
